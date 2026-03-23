@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import { View, StyleSheet, Pressable, Text } from 'react-native'
+import { useCallback, useState, useRef } from 'react'
+import { View, StyleSheet, Pressable, Text, ScrollView } from 'react-native'
 import {
   useCameraDevice,
   Camera,
@@ -7,74 +7,79 @@ import {
 } from 'react-native-vision-camera'
 import { useSkiaFrameProcessor } from 'react-native-vision-camera'
 import { Skia } from '@shopify/react-native-skia'
-import { InvertShader } from '../effects-skia/InvertEffect'
+import { useEffectStore } from '../stores/effectStore'
+import { SHADER_MAP, UNIFORM_BUILDERS, EFFECT_INFO, EFFECT_IDS } from '../effects-skia/pipeline'
 
 export function CameraScreen() {
   const [facing, setFacing] = useState<CameraPosition>('back')
-  const [effectEnabled, setEffectEnabled] = useState(false)
+  const [showGrid, setShowGrid] = useState(false)
   const device = useCameraDevice(facing)
+  const effects = useEffectStore((s) => s.effects)
+  const toggleEffect = useEffectStore((s) => s.toggleEffect)
+  const startTime = useRef(performance.now())
 
   const frameProcessor = useSkiaFrameProcessor((frame) => {
     'worklet'
 
-    // Apply invert shader when enabled
-    if (effectEnabled && InvertShader) {
-      const imageShader = frame.toShader()
-      const shader = InvertShader.makeShaderWithChildren(
-        [1.0], // effectMix
-        [imageShader],
-      )
-      const shaderPaint = Skia.Paint()
-      shaderPaint.setShader(shader)
+    const time = (performance.now() - startTime.current) / 1000
+    const resolution: [number, number] = [frame.width, frame.height]
+
+    // Get enabled effect IDs
+    const enabledIds = EFFECT_IDS.filter(id => effects[id]?.enabled)
+
+    if (enabledIds.length === 0) {
+      // No effects — just render the camera frame
+      frame.render()
+    } else {
+      // Chain effects: camera → effect1 → effect2 → ...
+      // Start with the camera frame as the first input shader
+      let currentShader = frame.toShader()
+
+      for (const id of enabledIds) {
+        const runtimeEffect = SHADER_MAP[id]
+        const buildUniforms = UNIFORM_BUILDERS[id]
+        if (!runtimeEffect || !buildUniforms) continue
+
+        const params = effects[id]?.params ?? {}
+        const uniforms = buildUniforms(params, resolution, time)
+
+        const nextShader = runtimeEffect.makeShaderWithChildren(
+          uniforms,
+          [currentShader],
+        )
+
+        if (nextShader) {
+          currentShader = nextShader
+        }
+      }
+
+      // Draw the final chained result
+      const paint = Skia.Paint()
+      paint.setShader(currentShader)
       frame.drawRect(
         Skia.XYWHRect(0, 0, frame.width, frame.height),
-        shaderPaint,
+        paint,
       )
-    } else {
-      frame.render()
     }
 
     // HUD overlay
-    const paint = Skia.Paint()
-    paint.setColor(Skia.Color('rgba(0, 255, 204, 0.9)'))
+    const hudPaint = Skia.Paint()
+    hudPaint.setColor(Skia.Color('rgba(0, 255, 204, 0.7)'))
+    const font = Skia.Font(null, 24)
+    frame.drawText('STRAND TRACER', 20, 48, hudPaint, font)
 
-    const font = Skia.Font(null, 28)
-    frame.drawText('STRAND TRACER', 24, 56, paint, font)
-
-    // Corner brackets
-    const bp = Skia.Paint()
-    bp.setColor(Skia.Color('#00ffcc'))
-    bp.setStrokeWidth(2.5)
-    bp.setStyle(2) // Stroke
-
-    const m = 40
-    const bl = 30
-    const w = frame.width
-    const h = frame.height
-
-    const tl = Skia.Path.Make()
-    tl.moveTo(m, m + bl); tl.lineTo(m, m); tl.lineTo(m + bl, m)
-    frame.drawPath(tl, bp)
-
-    const tr = Skia.Path.Make()
-    tr.moveTo(w - m - bl, m); tr.lineTo(w - m, m); tr.lineTo(w - m, m + bl)
-    frame.drawPath(tr, bp)
-
-    const blp = Skia.Path.Make()
-    blp.moveTo(m, h - m - bl); blp.lineTo(m, h - m); blp.lineTo(m + bl, h - m)
-    frame.drawPath(blp, bp)
-
-    const br = Skia.Path.Make()
-    br.moveTo(w - m - bl, h - m); br.lineTo(w - m, h - m); br.lineTo(w - m, h - m - bl)
-    frame.drawPath(br, bp)
-  }, [effectEnabled])
+    // Active effect count
+    const activeCount = EFFECT_IDS.filter(id => effects[id]?.enabled).length
+    if (activeCount > 0) {
+      const countPaint = Skia.Paint()
+      countPaint.setColor(Skia.Color('rgba(0, 255, 204, 0.5)'))
+      const smallFont = Skia.Font(null, 16)
+      frame.drawText(`${activeCount} FX ACTIVE`, 20, 72, countPaint, smallFont)
+    }
+  }, [effects])
 
   const flipCamera = useCallback(() => {
     setFacing(f => f === 'back' ? 'front' : 'back')
-  }, [])
-
-  const toggleEffect = useCallback(() => {
-    setEffectEnabled(e => !e)
   }, [])
 
   if (!device) {
@@ -95,6 +100,37 @@ export function CameraScreen() {
         pixelFormat="rgb"
       />
 
+      {/* Effect grid overlay */}
+      {showGrid && (
+        <View style={styles.gridOverlay}>
+          <ScrollView contentContainerStyle={styles.gridContent}>
+            <Text style={styles.gridTitle}>EFFECTS</Text>
+            <View style={styles.grid}>
+              {EFFECT_IDS.map((id) => {
+                const info = EFFECT_INFO[id]
+                const isActive = effects[id]?.enabled
+                return (
+                  <Pressable
+                    key={id}
+                    style={[
+                      styles.gridCell,
+                      isActive && { backgroundColor: info.color + '33', borderColor: info.color },
+                    ]}
+                    onPress={() => toggleEffect(id)}
+                  >
+                    <View style={[styles.led, isActive && { backgroundColor: info.color }]} />
+                    <Text style={[styles.gridLabel, isActive && { color: info.color }]}>
+                      {info.label}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Bottom bar */}
       <View style={styles.bottomBar}>
         <Pressable style={styles.circleButton} onPress={flipCamera}>
           <Text style={styles.buttonLabel}>FLIP</Text>
@@ -105,10 +141,10 @@ export function CameraScreen() {
         </View>
 
         <Pressable
-          style={[styles.circleButton, effectEnabled && styles.circleButtonActive]}
-          onPress={toggleEffect}
+          style={[styles.circleButton, showGrid && styles.circleButtonActive]}
+          onPress={() => setShowGrid(g => !g)}
         >
-          <Text style={[styles.buttonLabel, effectEnabled && styles.buttonLabelActive]}>FX</Text>
+          <Text style={[styles.buttonLabel, showGrid && styles.buttonLabelActive]}>FX</Text>
         </Pressable>
       </View>
     </View>
@@ -125,6 +161,57 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 100,
     fontSize: 16,
+  },
+  gridOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 110,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+  },
+  gridContent: {
+    alignItems: 'center',
+  },
+  gridTitle: {
+    color: '#00ffcc',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 4,
+    marginBottom: 20,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+    maxWidth: 340,
+  },
+  gridCell: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  led: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#333',
+  },
+  gridLabel: {
+    color: '#666',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   bottomBar: {
     position: 'absolute',

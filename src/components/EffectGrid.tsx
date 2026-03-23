@@ -1,7 +1,8 @@
 import { View, StyleSheet, Pressable, Text } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import { useEffectStore } from '../stores/effectStore'
-import { EFFECT_INFO, EFFECT_IDS } from '../effects-skia/pipeline'
+import { EFFECT_PAGES } from '../effects-skia/pipeline'
 
 interface EffectGridProps {
   onEffectSelect?: (id: string) => void
@@ -10,6 +11,11 @@ interface EffectGridProps {
 export function EffectGrid({ onEffectSelect }: EffectGridProps) {
   const effects = useEffectStore((s) => s.effects)
   const toggleEffect = useEffectStore((s) => s.toggleEffect)
+  const currentPage = useEffectStore((s) => s.currentPage)
+  const nextPage = useEffectStore((s) => s.nextPage)
+  const prevPage = useEffectStore((s) => s.prevPage)
+
+  const page = EFFECT_PAGES[currentPage]
 
   const handleToggle = (id: string) => {
     toggleEffect(id)
@@ -21,47 +27,101 @@ export function EffectGrid({ onEffectSelect }: EffectGridProps) {
     onEffectSelect?.(id)
   }
 
+  const swipeGesture = Gesture.Pan()
+    .onEnd((event) => {
+      if (event.translationX < -50) {
+        nextPage()
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      } else if (event.translationX > 50) {
+        prevPage()
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      }
+    })
+
+  const totalActive = Object.values(effects).filter(e => e.enabled).length
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>GLITCH</Text>
-      <View style={styles.grid}>
-        {EFFECT_IDS.map((id) => {
-          const info = EFFECT_INFO[id]
-          const isActive = effects[id]?.enabled
-          return (
-            <Pressable
-              key={id}
-              style={[
-                styles.cell,
-                isActive && { borderColor: info.color, backgroundColor: info.color + '20' },
-              ]}
-              onPress={() => handleToggle(id)}
-              onLongPress={() => handleLongPress(id)}
-            >
-              <View style={[styles.led, isActive && { backgroundColor: info.color, shadowColor: info.color, shadowRadius: 4, shadowOpacity: 0.8 }]} />
-              <Text style={[styles.label, isActive && { color: info.color }]}>
-                {info.label}
-              </Text>
-            </Pressable>
-          )
-        })}
+    <GestureDetector gesture={swipeGesture}>
+      <View style={styles.container}>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>{page?.name ?? 'EFFECTS'}</Text>
+          <View style={styles.pageDots}>
+            {EFFECT_PAGES.map((_, i) => (
+              <View key={i} style={[styles.dot, i === currentPage && styles.dotActive]} />
+            ))}
+          </View>
+          {totalActive > 0 && (
+            <Text style={styles.activeCount}>{totalActive} ACTIVE</Text>
+          )}
+        </View>
+
+        <View style={styles.grid}>
+          {page?.effects.map(({ id, label, color }) => {
+            const isActive = effects[id]?.enabled
+            return (
+              <Pressable
+                key={id}
+                style={[
+                  styles.cell,
+                  isActive && { borderColor: color, backgroundColor: color + '20' },
+                ]}
+                onPress={() => handleToggle(id)}
+                onLongPress={() => handleLongPress(id)}
+              >
+                <View style={[
+                  styles.led,
+                  isActive && { backgroundColor: color, shadowColor: color, shadowRadius: 4, shadowOpacity: 0.8 },
+                ]} />
+                <Text style={[styles.label, isActive && { color }]}>
+                  {label}
+                </Text>
+              </Pressable>
+            )
+          })}
+        </View>
+
+        <Text style={styles.hint}>Swipe for pages / Long-press for params</Text>
       </View>
-    </View>
+    </GestureDetector>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 4,
   },
-  title: {
-    color: '#00ffcc',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 4,
+  pageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
-    textAlign: 'center',
+    paddingHorizontal: 4,
+  },
+  pageTitle: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 3,
+  },
+  pageDots: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#333',
+  },
+  dotActive: {
+    backgroundColor: '#00ffcc',
+  },
+  activeCount: {
+    color: '#666',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
   grid: {
     flexDirection: 'row',
@@ -91,5 +151,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  hint: {
+    color: '#333',
+    fontSize: 9,
+    textAlign: 'center',
+    marginTop: 12,
+    letterSpacing: 0.5,
   },
 })

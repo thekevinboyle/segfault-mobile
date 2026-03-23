@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef } from 'react'
-import { View, StyleSheet, Pressable, Text } from 'react-native'
+import { View, StyleSheet, Pressable, Text, Image } from 'react-native'
 import {
   useCameraDevice,
   Camera,
@@ -8,6 +8,7 @@ import {
 import { useSkiaFrameProcessor } from 'react-native-vision-camera'
 import { Skia } from '@shopify/react-native-skia'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { useCapture } from '../hooks/useCapture'
 import { useEffectStore } from '../stores/effectStore'
 import { SHADER_MAP, UNIFORM_BUILDERS, EFFECT_IDS } from '../effects-skia/pipeline'
 import { BottomSheet } from './BottomSheet'
@@ -18,6 +19,8 @@ export function CameraScreen() {
   const [facing, setFacing] = useState<CameraPosition>('back')
   const [selectedEffect, setSelectedEffect] = useState<string | null>(null)
   const device = useCameraDevice(facing)
+  const cameraRef = useRef<Camera>(null)
+  const { takePhoto, lastCapture, isCapturing, shareLastCapture, dismissCapture } = useCapture(cameraRef)
   const effects = useEffectStore((s) => s.effects)
   const startTime = useRef(performance.now())
 
@@ -90,9 +93,12 @@ export function CameraScreen() {
   return (
     <GestureHandlerRootView style={styles.container}>
       <Camera
+        ref={cameraRef}
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={true}
+        photo={true}
+        video={true}
         frameProcessor={frameProcessor}
         pixelFormat="rgb"
       />
@@ -103,14 +109,31 @@ export function CameraScreen() {
           <Text style={styles.buttonLabel}>FLIP</Text>
         </Pressable>
 
-        <View style={styles.recordButton}>
-          <View style={styles.recordInner} />
-        </View>
+        <Pressable style={styles.recordButton} onPress={takePhoto} disabled={isCapturing}>
+          <View style={[styles.recordInner, isCapturing && styles.recordCapturing]} />
+        </Pressable>
 
-        <View style={styles.circleButton}>
+        <Pressable style={styles.circleButton} onPress={flipCamera}>
           <Text style={styles.buttonLabel}>REC</Text>
-        </View>
+        </Pressable>
       </View>
+
+      {/* Capture toast */}
+      {lastCapture && (
+        <View style={styles.captureToast}>
+          <Pressable onPress={shareLastCapture}>
+            <Image source={{ uri: lastCapture }} style={styles.captureThumbnail} />
+          </Pressable>
+          <View style={styles.captureActions}>
+            <Pressable onPress={shareLastCapture}>
+              <Text style={styles.captureAction}>SHARE</Text>
+            </Pressable>
+            <Pressable onPress={dismissCapture}>
+              <Text style={[styles.captureAction, { color: '#666' }]}>DISMISS</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       {/* Sliding panel */}
       <BottomSheet>
@@ -180,5 +203,40 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 25,
     backgroundColor: '#ff0044',
+  },
+  recordCapturing: {
+    backgroundColor: '#fff',
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+  },
+  captureToast: {
+    position: 'absolute',
+    bottom: 120,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    borderRadius: 12,
+    padding: 10,
+    gap: 12,
+    zIndex: 100,
+  },
+  captureThumbnail: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+  },
+  captureActions: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 16,
+  },
+  captureAction: {
+    color: '#00ffcc',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
 })

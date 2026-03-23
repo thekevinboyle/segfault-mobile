@@ -42,7 +42,8 @@
           "enableMicrophonePermission": true,
           "microphonePermissionText": "Strand Tracer needs microphone access for video recording"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

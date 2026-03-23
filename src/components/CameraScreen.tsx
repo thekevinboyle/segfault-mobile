@@ -7,16 +7,34 @@ import {
 } from 'react-native-vision-camera'
 import { useSkiaFrameProcessor } from 'react-native-vision-camera'
 import { Skia } from '@shopify/react-native-skia'
+import { InvertShader } from '../effects-skia/InvertEffect'
 
 export function CameraScreen() {
   const [facing, setFacing] = useState<CameraPosition>('back')
+  const [effectEnabled, setEffectEnabled] = useState(false)
   const device = useCameraDevice(facing)
 
   const frameProcessor = useSkiaFrameProcessor((frame) => {
     'worklet'
-    frame.render()
 
-    // HUD overlay — proves Skia is working
+    // Apply invert shader when enabled
+    if (effectEnabled && InvertShader) {
+      const imageShader = frame.toShader()
+      const shader = InvertShader.makeShaderWithChildren(
+        [1.0], // effectMix
+        [imageShader],
+      )
+      const shaderPaint = Skia.Paint()
+      shaderPaint.setShader(shader)
+      frame.drawRect(
+        Skia.XYWHRect(0, 0, frame.width, frame.height),
+        shaderPaint,
+      )
+    } else {
+      frame.render()
+    }
+
+    // HUD overlay
     const paint = Skia.Paint()
     paint.setColor(Skia.Color('rgba(0, 255, 204, 0.9)'))
 
@@ -49,10 +67,14 @@ export function CameraScreen() {
     const br = Skia.Path.Make()
     br.moveTo(w - m - bl, h - m); br.lineTo(w - m, h - m); br.lineTo(w - m, h - m - bl)
     frame.drawPath(br, bp)
-  }, [])
+  }, [effectEnabled])
 
   const flipCamera = useCallback(() => {
     setFacing(f => f === 'back' ? 'front' : 'back')
+  }, [])
+
+  const toggleEffect = useCallback(() => {
+    setEffectEnabled(e => !e)
   }, [])
 
   if (!device) {
@@ -82,9 +104,12 @@ export function CameraScreen() {
           <View style={styles.recordInner} />
         </View>
 
-        <View style={styles.circleButton}>
-          <Text style={styles.buttonLabel}>FX</Text>
-        </View>
+        <Pressable
+          style={[styles.circleButton, effectEnabled && styles.circleButtonActive]}
+          onPress={toggleEffect}
+        >
+          <Text style={[styles.buttonLabel, effectEnabled && styles.buttonLabelActive]}>FX</Text>
+        </Pressable>
       </View>
     </View>
   )
@@ -122,11 +147,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  circleButtonActive: {
+    backgroundColor: '#00ffcc',
+  },
   buttonLabel: {
     color: '#00ffcc',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  buttonLabelActive: {
+    color: '#0a0a0a',
   },
   recordButton: {
     width: 68,

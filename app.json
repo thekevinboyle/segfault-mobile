@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "segfault-mobile",
+    "name": "Strand Tracer",
     "slug": "segfault-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -33,6 +33,14 @@
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
           }
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Strand Tracer needs camera access for real-time effects",
+          "enableMicrophonePermission": true,
+          "microphonePermissionText": "Strand Tracer needs microphone access for video recording"
         }
       ]
     ],
